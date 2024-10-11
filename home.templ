@@ -1,0 +1,127 @@
+package main
+
+import "net/http"
+
+func hasRegularUserId(r *http.Request) bool {
+	return r.URL.Query().Get("regular_user_id") != ""
+}
+
+templ Home(r *http.Request) {
+	<!DOCTYPE html>
+	<html>
+		<head>
+			<title>The Regular - Realtime Voting</title>
+			<script src="https://unpkg.com/htmx.org@1.9.10"></script>
+			<style>
+			body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+			.vote-round { margin-bottom: 30px; }
+			.vote-round h2 { margin-bottom: 15px; }
+			.vote-item { margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
+			button { padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+			button:hover { background-color: #0056b3; }
+			.votes { margin-left: 10px; font-weight: bold; }
+		</style>
+		</head>
+		<body>
+			<h1>The Regular - Realtime Voting</h1>
+			if !hasRegularUserId(r) {
+				<div id="email-form">
+					<input type="email" id="email-input" placeholder="Enter your email address"/>
+					<button onclick="setEmail()">Set Email</button>
+				</div>
+			}
+			<div id="vote-container">
+				<!-- Vote rounds and items will be populated here -->
+			</div>
+			<script>
+			let socket = new WebSocket("ws://" + window.location.host + "/voter/ws");
+			socket.onmessage = function(e) {
+				const data = JSON.parse(e.data);
+				if (data.type === "update") {
+					updateVotes(data.results);
+				}
+			};
+
+			function updateVotes(results) {
+				const container = document.getElementById("vote-container");
+				const rounds = {};
+
+				// Group items by round
+				results.forEach(item => {
+					const [roundName, itemName] = item.name.split(' - ');
+					if (!rounds[roundName]) {
+						rounds[roundName] = [];
+					}
+					rounds[roundName].push({...item, name: itemName});
+				});
+
+				// Generate HTML for each round
+				container.innerHTML = Object.entries(rounds).map(([roundName, items]) => `
+					<div class="vote-round">
+						<h2>${roundName}</h2>
+						${items.map(item => `
+							<div class="vote-item">
+								<button onclick="vote(${item.id})">
+									Vote for ${item.name}
+								</button>
+								<span class="votes">${item.votes} votes</span>
+							</div>
+						`).join("")}
+					</div>
+				`).join("");
+			}
+
+			function setEmail() {
+				const email = document.getElementById('email-input').value;
+				const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$/;
+
+				if (email && emailRegex.test(email)) {
+					const url = new URL(window.location);
+					url.searchParams.set('regular_user_id', email);
+					window.history.pushState({}, '', url);
+					location.reload(); // Reload the page to hide the email input form
+				} else {
+					alert('Please enter a valid email address.');
+				}
+			}
+
+			async function vote(itemId) {
+				const urlParams = new URLSearchParams(window.location.search);
+				const regularUserId = urlParams.get('regular_user_id');
+				if (regularUserId) {
+					const resp = await fetch("/vote", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify({ itemId, userIdEmail: regularUserId }),
+					});
+
+					if (resp.ok) {
+						alert("Vote recorded successfully!");
+					} else {
+						const error = await resp.text();
+						alert("Voting failed: " + error);
+					}
+				} else {
+					alert("We need your email address to add your vote.");
+				}
+			}
+
+			document.addEventListener('DOMContentLoaded', () => {
+				// Initial request for vote data
+				fetch("/vote")
+					.then(response => response.json())
+					.then(data => updateVotes(data.results));
+
+				// Set email input value from URL if present
+				const urlParams = new URLSearchParams(window.location.search);
+				const regularUserId = urlParams.get('regular_user_id');
+				if (regularUserId) {
+					document.getElementById('email-input').value = regularUserId;
+				}
+			});
+		</script>
+		</body>
+	</html>
+}

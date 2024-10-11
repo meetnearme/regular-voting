@@ -1,0 +1,62 @@
+package main
+
+templ Admin() {
+	<!DOCTYPE html>
+	<html>
+		<head>
+			<title>Admin - Vote Records</title>
+			<style>
+				body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+				table { width: 100%; border-collapse: collapse; }
+				th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+				th { background-color: #f2f2f2; }
+			</style>
+		</head>
+		<body>
+			<h1>Admin - Vote Records</h1>
+			<div id="vote-records"></div>
+			<script>
+				const socket = new WebSocket("ws://" + window.location.host + "/admin/ws");
+
+				socket.onmessage = function(event) {
+					console.log('Received WebSocket message:', event.data);
+					try {
+						const data = JSON.parse(event.data);
+						if (Array.isArray(data)) {
+							updateVoteRecords(data);
+						} else {
+							console.error('Received data is not an array:', data);
+						}
+					} catch (error) {
+						console.error('Error parsing WebSocket data:', error);
+					}
+				};
+
+				function updateVoteRecords(data) {
+					const container = document.getElementById("vote-records");
+					let html = '<table><tr><th>Round</th><th>User ID</th><th>Vote</th></tr>';
+
+					data.forEach(record => {
+						html += `<tr>
+							<td>${record.roundName}</td>
+							<td>${record.userId}</td>
+							<td>${record.voteName}</td>
+						</tr>`;
+					});
+
+					html += '</table>';
+					container.innerHTML = html;
+				}
+
+				// Initial request for vote records
+				fetch("/admin/vote-records")
+					.then(response => response.json())
+					.then(data => {
+						console.log('Initial vote records:', data);
+						updateVoteRecords(data);
+					})
+					.catch(error => console.error('Error fetching initial vote records:', error));
+			</script>
+		</body>
+	</html>
+}
